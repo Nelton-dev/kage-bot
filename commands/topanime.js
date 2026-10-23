@@ -4,10 +4,13 @@ const ANILIST_API = 'https://graphql.anilist.co';
 
 module.exports = {
     name: 'topanime',
-    aliases: ['top', 'melhoresanimes'],
+    aliases: ["top"],
+    description: "Apresenta os 10 animes mais bem classificados.",
 
-    description: 'Mostra os 10 animes mais bem classificados.',
 
+    category: 'Animes',
+
+    icon: '🏆',
     async execute({ kage, jid }) {
         try {
             await kage.sendMessage(jid, {

@@ -7,9 +7,11 @@ const API_TOKEN = process.env.KAGE_API_TOKEN;
 
 module.exports = {
     name: 'hentai',
-    aliases: ['hn'],
-    description: 'Pesquisa títulos na API configurada.',
+    aliases: ["hn"],
+    description: "Pesquisa títulos na categoria hentai.",
 
+    category: 'Pesquisa',
+    icon: '🔎',
     async execute({ kage, jid, msg, args }) {
         const pesquisa = args.join(' ').trim();
 

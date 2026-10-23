@@ -1,7 +1,9 @@
 module.exports = {
     name: 'ping',
-    description: 'Verifica se o KAGE-BOT está online.',
+    description: "Verifica se o KAGE-BOT está online.",
 
+    category: 'Gerais',
+    icon: '⚡',
     async execute({ kage, jid, msg }) {
         const inicio = Date.now();
 

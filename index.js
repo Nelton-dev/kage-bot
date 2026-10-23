@@ -265,8 +265,22 @@ async function iniciarKage() {
                             continue;
                         }
 
-                        const texto = extrairTexto(msg).trim();
+                       const texto = extrairTexto(msg).trim();
 
+// Tratar categorias e navegação do menu textual.
+const menu = require('./commands/menu');
+
+const tratadoPeloMenu = await menu.handleText({
+    kage: socket,
+    jid,
+    msg,
+    texto,
+    prefix: PREFIX
+});
+
+if (tratadoPeloMenu) {
+    continue;
+}
                         if (!texto.startsWith(PREFIX)) {
                             continue;
                         }

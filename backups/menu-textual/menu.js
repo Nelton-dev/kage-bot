@@ -1,0 +1,272 @@
+const fs = require('fs');
+const path = require('path');
+
+const MENU_ID = 'KAGE_MENU:';
+
+function carregarLista() {
+    const ficheiros = fs.readdirSync(__dirname)
+        .filter(f => f.endsWith('.js') && !f.endsWith('.bak'));
+
+    const mapa = new Map();
+
+    for (const ficheiro of ficheiros) {
+        try {
+            const cmd = require(path.join(__dirname, ficheiro));
+
+            if (!cmd.name || typeof cmd.execute !== 'function') {
+                continue;
+            }
+
+            const nome = cmd.name.toLowerCase();
+
+            if (mapa.has(nome)) continue;
+
+            mapa.set(nome, {
+                name: nome,
+                description: cmd.description || 'Sem descrição.',
+                category: cmd.category || 'Outros',
+                icon: cmd.icon || '🔹'
+            });
+        } catch (err) {
+            console.error(`Erro ao ler ${ficheiro}:`, err.message);
+        }
+    }
+
+    return [...mapa.values()].sort((a, b) =>
+        a.name.localeCompare(b.name)
+    );
+}
+
+function categoriasDisponiveis(lista) {
+    const ordem = ['Gerais', 'Animes', 'Pesquisa', 'Outros'];
+    const nomes = [...new Set(lista.map(c => c.category))];
+
+    return nomes.sort((a, b) => {
+        const pa = ordem.indexOf(a);
+        const pb = ordem.indexOf(b);
+
+        if (pa !== -1 || pb !== -1) {
+            if (pa === -1) return 1;
+            if (pb === -1) return -1;
+            return pa - pb;
+        }
+
+        return a.localeCompare(b);
+    });
+}
+
+function iconeCategoria(nome) {
+    return {
+        Gerais: '⚙️',
+        Animes: '🎌',
+        Pesquisa: '🔎',
+        Outros: '🔰'
+    }[nome] || '📂';
+}
+
+async function enviarLista(kage, jid, msg, titulo, botao, secoes) {
+    const mensagem = {
+        title: titulo,
+        description: '🥷 KAGE-BOT | THE SHADOW ASSISTANT',
+        buttonText: botao,
+        listType: 1,
+        sections: secoes
+    };
+
+    console.log(
+        `📋 A enviar lista: ${titulo} | ` +
+        `${secoes.reduce((total, secao) => total + (secao.rows || []).length, 0)} opções`
+    );
+
+    const resultado = await kage.sendMessage(
+        jid,
+        {
+            title: mensagem.title,
+            description: mensagem.description,
+            buttonText: mensagem.buttonText,
+            listType: mensagem.listType,
+            sections: mensagem.sections
+        },
+        { quoted: msg }
+    );
+
+    console.log(
+        resultado
+            ? '✅ Lista enviada ao Baileys.'
+            : '⚠️ O Baileys não devolveu confirmação da lista.'
+    );
+
+    return resultado;
+}
+
+async function mostrarInicio({ kage, jid, msg }) {
+    const lista = carregarLista();
+    const categorias = categoriasDisponiveis(lista);
+
+    const rows = categorias.slice(0, 10).map(categoria => ({
+        title: `${iconeCategoria(categoria)} ${categoria}`.slice(0, 24),
+        description: `${lista.filter(c => c.category === categoria).length} comando(s)`,
+        rowId: `${MENU_ID}CATEGORY:${encodeURIComponent(categoria)}`
+    }));
+
+    try {
+        const banner = path.join(__dirname, '..', 'assets', 'kage-banner.png');
+
+        if (fs.existsSync(banner)) {
+            await kage.sendMessage(
+                jid,
+                {
+                    image: fs.readFileSync(banner),
+                    caption: '🥷 KAGE-BOT\nEscolhe uma categoria no menu abaixo.'
+                },
+                { quoted: msg }
+            );
+        }
+    } catch (err) {
+        console.error('Não foi possível enviar o banner:', err.message);
+    }
+
+    try {
+        await enviarLista(
+            kage,
+            jid,
+            msg,
+            '🥷 KAGE-BOT',
+            'Ver categorias',
+            [{ title: 'CATEGORIAS', rows }]
+        );
+    } catch (err) {
+        console.error('Erro no menu interativo:', err.message);
+
+        await kage.sendMessage(
+            jid,
+            {
+                text: '🥷 KAGE-BOT\n\n' +
+                    categorias.map(c =>
+                        `${iconeCategoria(c)} ${c}: ` +
+                        lista.filter(x => x.category === c)
+                            .map(x => `.${x.name}`).join(', ')
+                    ).join('\n\n')
+            },
+            { quoted: msg }
+        );
+    }
+}
+
+async function mostrarCategoria({ kage, jid, msg, categoria, prefix }) {
+    const lista = carregarLista()
+        .filter(c => c.category === categoria);
+
+    if (!lista.length) {
+        await kage.sendMessage(jid, {
+            text: 'Esta categoria não existe ou não tem comandos.'
+        }, { quoted: msg });
+        return;
+    }
+
+    const rows = lista.slice(0, 9).map(cmd => ({
+        title: `${cmd.icon} ${prefix}${cmd.name}`.slice(0, 24),
+        description: cmd.description.slice(0, 72),
+        rowId: `${MENU_ID}COMMAND:${encodeURIComponent(cmd.name)}`
+    }));
+
+    rows.push({
+        title: '↩️ Menu principal',
+        description: 'Voltar às categorias',
+        rowId: `${MENU_ID}HOME`
+    });
+
+    try {
+        await enviarLista(
+            kage,
+            jid,
+            msg,
+            categoria,
+            'Ver comandos',
+            [{ title: categoria.toUpperCase(), rows }]
+        );
+    } catch (err) {
+        console.error('Erro ao mostrar categoria:', err.message);
+
+        await kage.sendMessage(jid, {
+            text: `${iconeCategoria(categoria)} ${categoria}\n\n` +
+                lista.map(c => `${prefix}${c.name} - ${c.description}`)
+                    .join('\n') +
+                `\n\nEnvia ${prefix}menu para voltar ao início.`
+        }, { quoted: msg });
+    }
+}
+
+module.exports = {
+    name: 'menu',
+    description: 'Abre o menu interativo do KAGE-BOT.',
+    category: 'Gerais',
+    icon: '📜',
+
+    async execute({ kage, jid, msg }) {
+        await mostrarInicio({ kage, jid, msg });
+    },
+
+    async handleSelection({
+        kage, jid, msg, selection, prefix, comandos
+    }) {
+        if (selection === `${MENU_ID}HOME`) {
+            await mostrarInicio({ kage, jid, msg });
+            return;
+        }
+
+        if (selection.startsWith(`${MENU_ID}CATEGORY:`)) {
+            const categoria = decodeURIComponent(
+                selection.slice(`${MENU_ID}CATEGORY:`.length)
+            );
+
+            await mostrarCategoria({
+                kage, jid, msg, categoria, prefix
+            });
+            return;
+        }
+
+        if (selection.startsWith(`${MENU_ID}COMMAND:`)) {
+            const nome = decodeURIComponent(
+                selection.slice(`${MENU_ID}COMMAND:`.length)
+            ).toLowerCase();
+
+            const comando = comandos.get(nome);
+
+            if (!comando) {
+                await kage.sendMessage(jid, {
+                    text: 'Este comando já não está disponível. Envia ' +
+                        `${prefix}menu para atualizar a lista.`
+                }, { quoted: msg });
+                return;
+            }
+
+            if (['anime', 'hentai'].includes(comando.name)) {
+                await kage.sendMessage(jid, {
+                    text: `Para usar este comando, envia:\n` +
+                        `${prefix}${comando.name} <título>\n\n` +
+                        'Exemplo: ' +
+                        `${prefix}${comando.name} Naruto`
+                }, { quoted: msg });
+                return;
+            }
+
+            await comando.execute({
+                kage,
+                jid,
+                msg,
+                q: '',
+                args: [],
+                comando: comando.name,
+                prefix,
+                nomeBot: 'KAGE-BOT',
+                isGroup: jid.endsWith('@g.us')
+            });
+            return;
+        }
+
+        await kage.sendMessage(jid, {
+            text: `Opção inválida. Envia ${prefix}menu para reabrir o menu.`
+        }, { quoted: msg });
+    }
+};

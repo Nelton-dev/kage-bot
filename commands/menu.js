@@ -1,196 +1,438 @@
 const fs = require('fs');
 const path = require('path');
 
-module.exports = {
-    name: 'menu',
-    description: 'Apresenta os comandos disponíveis.',
+const MENU_ID = 'KAGE_MENU:';
 
-    async execute({ kage, jid, msg, prefix = '.' }) {
-        const pastaComandos = __dirname;
-        const caminhoBanner = path.join(
-            __dirname,
-            '..',
-            'assets',
-            'kage-banner.png'
-        );
+/**
+ * Carrega os comandos disponíveis na pasta commands.
+ */
+function carregarLista() {
+    const ficheiros = fs.readdirSync(__dirname)
+        .filter(f => f.endsWith('.js') && !f.endsWith('.bak'));
 
-        // Alguns comandos precisam de argumentos, como o nome de um anime.
-        // Aqui definimos apenas como esses comandos aparecem no menu.
-        const exemplos = {
-            anime: '<título>',
-            ani: '<título>'
-        };
+    const mapa = new Map();
 
-        const icones = {
-            ping: '⚡',
-            menu: '📜',
-            anime: '🎌',
-            temporada: '🍿',
-            topanime: '🏆',
-            animealeatorio: '🎲'
-        };
-
-        let comandos = [];
-
+    for (const ficheiro of ficheiros) {
         try {
-            // Lê todos os ficheiros JavaScript da pasta de comandos.
-            const ficheiros = fs.readdirSync(pastaComandos)
-                .filter(arquivo =>
-                    arquivo.endsWith('.js') &&
-                    arquivo !== 'menu.js'
-                );
+            const cmd = require(path.join(__dirname, ficheiro));
 
-            for (const ficheiro of ficheiros) {
-                try {
-                    const caminho = path.join(pastaComandos, ficheiro);
-                    const comando = require(caminho);
-
-                    // Só incluímos módulos que tenham um nome de comando.
-                    if (!comando.name) continue;
-
-                    comandos.push({
-                        name: comando.name,
-                        description:
-                            comando.description || 'Sem descrição disponível.',
-                        aliases: comando.aliases || []
-                    });
-                } catch (erro) {
-                    console.error(
-                        `Erro ao carregar ${ficheiro}:`,
-                        erro.message
-                    );
-                }
+            if (!cmd.name || typeof cmd.execute !== 'function') {
+                continue;
             }
 
-            // O menu também é um comando, por isso adicionamo-lo à lista.
-            comandos.push({
-                name: 'menu',
-                description: 'Apresenta os comandos disponíveis.',
-                aliases: []
+            const nome = cmd.name.toLowerCase();
+
+            // Evita comandos duplicados.
+            if (mapa.has(nome)) continue;
+
+            mapa.set(nome, {
+                name: nome,
+                description: cmd.description || 'Sem descrição.',
+                category: cmd.category || 'Outros',
+                icon: cmd.icon || '🔹'
             });
-
-            // Ordena alfabeticamente e evita nomes repetidos.
-            const nomes = new Set();
-
-            comandos = comandos
-                .sort((a, b) => a.name.localeCompare(b.name))
-                .filter(comando => {
-                    if (nomes.has(comando.name)) return false;
-
-                    nomes.add(comando.name);
-                    return true;
-                });
-
-        } catch (erro) {
+        } catch (err) {
             console.error(
-                'Erro ao ler a pasta de comandos:',
-                erro.message
+                `Erro ao carregar ${ficheiro}:`,
+                err.message
             );
         }
+    }
 
-        // Organiza os comandos por categoria.
-        const gerais = comandos.filter(comando =>
-            ['ping', 'menu'].includes(comando.name)
-        );
+    return [...mapa.values()].sort((a, b) =>
+        a.name.localeCompare(b.name)
+    );
+}
 
-        const animes = comandos.filter(comando =>
-            [
-                'anime',
-                'temporada',
-                'topanime',
-                'animealeatorio'
-            ].includes(comando.name)
-        );
+/**
+ * Organiza as categorias pela ordem definida.
+ */
+function categoriasDisponiveis(lista) {
+    const ordem = [
+    'Gerais',
+    'Animes',
+    'Filmes',
+    'Séries',
+    'Pesquisa',
+    'Outros'
+];
+    const nomes = [...new Set(lista.map(c => c.category))];
 
-        const outros = comandos.filter(comando =>
-            !gerais.includes(comando) &&
-            !animes.includes(comando)
-        );
+    return nomes.sort((a, b) => {
+        const pa = ordem.indexOf(a);
+        const pb = ordem.indexOf(b);
 
-        // Formata cada comando com o respetivo ícone e descrição.
-        function formatarComando(comando) {
-            const icone = icones[comando.name] || '🔹';
+        if (pa !== -1 || pb !== -1) {
+            if (pa === -1) return 1;
+            if (pb === -1) return -1;
 
-            const argumento = exemplos[comando.name]
-                ? ` ${exemplos[comando.name]}`
-                : '';
-
-            const aliases = comando.aliases.length
-                ? ` | ${comando.aliases.map(a => `${prefix}${a}`).join(', ')}`
-                : '';
-
-            return `${icone} ${prefix}${comando.name}${argumento}${aliases}`;
+            return pa - pb;
         }
 
-        const linhas = [
-            '╭━━━〔 🥷 KAGE-BOT 〕━━━╮',
-            '┃',
-            '┃ 影  THE SHADOW BOT',
-            '┃',
-            '┃ ⚡ COMANDOS GERAIS',
-            ...gerais.map(comando => `┃ ${formatarComando(comando)}`),
+        return a.localeCompare(b);
+    });
+}
+
+/**
+ * Devolve o ícone de cada categoria.
+ */
+function iconeCategoria(nome) {
+    return {
+        Gerais: '⚙️',
+        Animes: '🎌',
+        Filmes: '🎬',
+        Séries: '📺',
+        Pesquisa: '🔎',
+        Outros: '🔰'
+    }[nome] || '📂';
+}
+
+/**
+ * Normaliza texto para permitir comparações
+ * sem diferenças entre maiúsculas e acentos.
+ */
+function normalizar(texto) {
+    return String(texto || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+}
+
+/**
+ * Cria o menu principal.
+ * Envia o banner com o menu na legenda.
+ * Se o banner falhar, envia apenas o texto.
+ */
+async function mostrarInicio({
+    kage,
+    jid,
+    msg,
+    prefix = '.'
+}) {
+    const lista = carregarLista();
+    const categorias = categoriasDisponiveis(lista);
+
+    const descricoes = {
+    Gerais: 'Ferramentas essenciais do bot',
+    Animes: 'Descobre o teu próximo anime',
+    Filmes: 'Pesquisa filmes e descobre novas histórias',
+    Séries: 'Explora séries, temporadas e episódios',
+    Pesquisa: 'Pesquisa e consultas especializadas',
+    Outros: 'Outras funcionalidades'
+};
+    const linhas = categorias.flatMap(categoria => {
+        const quantidade = lista.filter(
+            c => c.category === categoria
+        ).length;
+
+        return [
+            `${iconeCategoria(categoria)} ${categoria.toUpperCase()}`,
+            `   ${descricoes[categoria] || 'Outras funcionalidades'}`,
+            `   📦 ${quantidade} comando(s)`,
             ''
         ];
+    });
 
-        if (animes.length > 0) {
-            linhas.push(
-                '┃ 🎌 MUNDO DOS ANIMES',
-                ...animes.map(comando => `┃ ${formatarComando(comando)}`),
-                ''
+    const texto = [
+        '🥷 K A G E - B O T',
+        '━━━━━━━━━━━━━━━━━━━━',
+        '⚡ THE SHADOW ASSISTANT',
+        '',
+        '「 BEM-VINDO, SHINOBI 」',
+        'O teu arsenal está pronto.',
+        '',
+        '┏━━ 📚 CATEGORIAS ━━┓',
+        '',
+        ...linhas,
+        '┗━━━━━━━━━━━━━━━━━━┛',
+        '',
+        '💬 NAVEGAÇÃO',
+        'Escreve o nome de uma categoria.',
+        '',
+        'Exemplo: Animes',
+        `⚙️ Prefixo: ${prefix}`,
+        '',
+        '━━━━━━━━━━━━━━━━━━━━',
+        '「 Escolhe a tua próxima missão 」'
+    ].join('\n');
+
+    const banner = path.join(
+        __dirname,
+        '..',
+        'assets',
+        'kage-banner.png'
+    );
+
+    try {
+        if (fs.existsSync(banner)) {
+            await kage.sendMessage(
+                jid,
+                {
+                    image: fs.readFileSync(banner),
+                    caption: texto
+                },
+                { quoted: msg }
             );
-        }
 
-        if (outros.length > 0) {
-            linhas.push(
-                '┃ 🔰 OUTROS COMANDOS',
-                ...outros.map(comando => `┃ ${formatarComando(comando)}`),
-                ''
-            );
+            return;
         }
+    } catch (err) {
+        console.error(
+            'Erro ao enviar o banner:',
+            err.message
+        );
+    }
 
-        linhas.push(
-            '┃',
-            '┃ 🌑 Explore o mundo dos animes.',
-            '┃ ⚙️ Mais funcionalidades a caminho!',
-            '┃',
-            '╰━━━━━━━━━━━━━━━━━━━━━━╯'
+    // Alternativa caso a imagem não exista ou falhe.
+    await kage.sendMessage(
+        jid,
+        { text: texto },
+        { quoted: msg }
+    );
+}
+
+/**
+ * Mostra os comandos de uma categoria em texto.
+ */
+async function mostrarCategoria({
+    kage,
+    jid,
+    msg,
+    categoria,
+    prefix = '.'
+}) {
+    const lista = carregarLista().filter(
+        c => normalizar(c.category) === normalizar(categoria)
+    );
+
+    if (!lista.length) {
+        await kage.sendMessage(
+            jid,
+            {
+                text:
+                    '🥷 KAGE-BOT\n\n' +
+                    '❌ Categoria não encontrada.\n\n' +
+                    '↩️ Escreve Menu para voltar.'
+            },
+            { quoted: msg }
         );
 
-        const menu = linhas.join('\n');
+        return;
+    }
 
-        try {
-            // Envia o banner com o menu como legenda.
-            if (fs.existsSync(caminhoBanner)) {
+    const linhas = lista.map((cmd, index) => {
+        const separador = index < lista.length - 1
+            ? '\n────────────────────'
+            : '';
+
+        return [
+            `${cmd.icon} ${cmd.name.toUpperCase()}`,
+            `   Comando: ${prefix}${cmd.name}`,
+            `   ${cmd.description}${separador}`
+        ].join('\n');
+    });
+
+    const texto = [
+        `${iconeCategoria(categoria)} KAGE-BOT`,
+        `「 ${categoria.toUpperCase()} 」`,
+        '━━━━━━━━━━━━━━━━━━━━',
+        '',
+        '📚 ARSENAL DISPONÍVEL',
+        '',
+        ...linhas,
+        '',
+        '━━━━━━━━━━━━━━━━━━━━',
+        '💡 Escreve o comando para o executar.',
+        '↩️ Escreve Menu para voltar.'
+    ].join('\n');
+
+    await kage.sendMessage(
+        jid,
+        { text: texto },
+        { quoted: msg }
+    );
+}
+
+/**
+ * Exporta o comando e as funções de navegação.
+ */
+module.exports = {
+    name: 'menu',
+    description: 'Apresenta o menu do KAGE-BOT.',
+    category: 'Gerais',
+    icon: '📜',
+
+    /**
+     * Executado quando o utilizador escreve .menu.
+     */
+    async execute({
+        kage,
+        jid,
+        msg,
+        prefix = '.'
+    }) {
+        await mostrarInicio({
+            kage,
+            jid,
+            msg,
+            prefix
+        });
+    },
+
+    /**
+     * Trata mensagens como Menu, Animes, Pesquisa e Gerais.
+     */
+    async handleText({
+        kage,
+        jid,
+        msg,
+        texto,
+        prefix = '.'
+    }) {
+        const entrada = normalizar(texto);
+
+        if ([
+            'menu',
+            '.menu',
+            'inicio'
+        ].includes(entrada)) {
+            await mostrarInicio({
+                kage,
+                jid,
+                msg,
+                prefix
+            });
+
+            return true;
+        }
+
+        const lista = carregarLista();
+        const categorias = categoriasDisponiveis(lista);
+
+        const categoria = categorias.find(
+            c => normalizar(c) === entrada
+        );
+
+        if (categoria) {
+            await mostrarCategoria({
+                kage,
+                jid,
+                msg,
+                categoria,
+                prefix
+            });
+
+            return true;
+        }
+
+        return false;
+    },
+
+    /**
+     * Mantém a compatibilidade com seleções interativas
+     * caso sejam recebidas por outras partes do projeto.
+     */
+    async handleSelection({
+        kage,
+        jid,
+        msg,
+        selection,
+        prefix = '.',
+        comandos
+    }) {
+        if (selection === `${MENU_ID}HOME`) {
+            await mostrarInicio({
+                kage,
+                jid,
+                msg,
+                prefix
+            });
+
+            return;
+        }
+
+        if (
+            typeof selection === 'string' &&
+            selection.startsWith(`${MENU_ID}CATEGORY:`)
+        ) {
+            const categoria = decodeURIComponent(
+                selection.slice(`${MENU_ID}CATEGORY:`.length)
+            );
+
+            await mostrarCategoria({
+                kage,
+                jid,
+                msg,
+                categoria,
+                prefix
+            });
+
+            return;
+        }
+
+        if (
+            typeof selection === 'string' &&
+            selection.startsWith(`${MENU_ID}COMMAND:`)
+        ) {
+            const nome = decodeURIComponent(
+                selection.slice(`${MENU_ID}COMMAND:`.length)
+            ).toLowerCase();
+
+            const comando = comandos?.get(nome);
+
+            if (!comando) {
                 await kage.sendMessage(
                     jid,
                     {
-                        image: fs.readFileSync(caminhoBanner),
-                        caption: menu
+                        text:
+                            'Este comando já não está disponível.\n' +
+                            `Envia ${prefix}menu para atualizar o menu.`
                     },
                     { quoted: msg }
                 );
-            } else {
-                // Se a imagem não estiver disponível, o menu continua funcional.
+
+                return;
+            }
+
+            if (['anime', 'hentai'].includes(comando.name)) {
                 await kage.sendMessage(
                     jid,
-                    { text: menu },
+                    {
+                        text:
+                            `Para usar este comando, envia:\n` +
+                            `${prefix}${comando.name} <título>\n\n` +
+                            `Exemplo: ${prefix}${comando.name} Naruto`
+                    },
                     { quoted: msg }
                 );
 
-                console.warn(
-                    'Banner não encontrado:',
-                    caminhoBanner
-                );
+                return;
             }
-        } catch (erro) {
-            console.error(
-                'Erro ao enviar o menu:',
-                erro.message
-            );
 
-            await kage.sendMessage(jid, {
-                text: menu
+            await comando.execute({
+                kage,
+                jid,
+                msg,
+                q: '',
+                args: [],
+                comando: comando.name,
+                prefix,
+                nomeBot: 'KAGE-BOT',
+                isGroup: jid.endsWith('@g.us')
             });
+
+            return;
         }
+
+        await kage.sendMessage(
+            jid,
+            {
+                text:
+                    'Opção inválida.\n' +
+                    `Envia ${prefix}menu para reabrir o menu.`
+            },
+            { quoted: msg }
+        );
     }
 };

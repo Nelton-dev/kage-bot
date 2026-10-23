@@ -1,0 +1,60 @@
+const {
+    proto,
+    generateWAMessageFromContent
+} = require('@whiskeysockets/baileys');
+
+module.exports = {
+    name: 'testemenu',
+    description: 'Testa o envio de uma lista interativa.',
+    category: 'Gerais',
+    icon: '🧪',
+
+    async execute({ kage, jid, msg }) {
+        try {
+            const lista = proto.Message.ListMessage.create({
+                title: '🥷 KAGE-BOT',
+                description: 'Teste de menu interativo',
+                buttonText: 'Abrir menu',
+                listType:
+                    proto.Message.ListMessage.ListType.SINGLE_SELECT,
+                sections: [{
+                    title: 'TESTE',
+                    rows: [{
+                        title: '🏓 Ping',
+                        description: 'Testar a seleção',
+                        rowId: 'KAGE_MENU:COMMAND:ping'
+                    }]
+                }]
+            });
+
+            const mensagem = generateWAMessageFromContent(
+                jid,
+                { listMessage: lista },
+                {
+                    userJid: kage.user.id
+                }
+            );
+
+            console.log('🧪 A transmitir lista de teste...');
+
+            await kage.relayMessage(
+                jid,
+                mensagem.message,
+                {
+                    messageId: mensagem.key.id
+                }
+            );
+
+            console.log('✅ Pedido de envio concluído.');
+        } catch (err) {
+            console.error(
+                '❌ Erro no teste do menu:',
+                err.stack || err
+            );
+
+            await kage.sendMessage(jid, {
+                text: 'O teste do menu falhou: ' + err.message
+            });
+        }
+    }
+};

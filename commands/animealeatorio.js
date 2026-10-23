@@ -56,10 +56,13 @@ async function traduzirDescricao(texto) {
 
 module.exports = {
     name: 'animealeatorio',
-    aliases: ['aleatorio', 'randomanime', 'anime random'],
+    aliases: ["aleatorio"],
+    description: "Descobre um anime recomendado aleatoriamente.",
 
-    description: 'Recomenda um anime aleatório.',
 
+    category: 'Animes',
+
+    icon: '🎲',
     async execute({ kage, jid }) {
         try {
             await kage.sendMessage(jid, {

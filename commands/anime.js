@@ -60,10 +60,13 @@ async function traduzirDescricao(texto) {
 
 module.exports = {
     name: 'anime',
-    aliases: ['animes', 'ani'],
+    aliases: ["ani"],
+    description: " Pesquisa um anime e apresenta informações em português.",
 
-    description: 'Pesquisa um anime e apresenta a descrição em português.',
 
+    category: 'Animes',
+
+    icon: '🎌',
     async execute({ kage, jid, q }) {
         // Sem um nome, não há como saber qual anime pesquisar.
         if (!q || !q.trim()) {

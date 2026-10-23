@@ -27,10 +27,13 @@ function nomeTemporada(temporada) {
 
 module.exports = {
     name: 'temporada',
-    aliases: ['season', 'animesatuais'],
+    aliases: ["season"],
+    description: "Consulta os animes da temporada atual.",
 
-    description: 'Mostra os animes da temporada atual.',
 
+    category: 'Animes',
+
+    icon: '🍿',
     async execute({ kage, jid }) {
         try {
             const agora = new Date();
